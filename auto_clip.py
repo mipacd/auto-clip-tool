@@ -8,10 +8,8 @@ import datetime
 import pytz
 import re
 import pandas as pd
-import numpy as np
 import os
 from pathlib import Path
-from slugify import slugify
 from datetime import timedelta
 from collections import Counter, defaultdict
 import isodate
