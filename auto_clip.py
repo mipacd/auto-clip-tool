@@ -1,7 +1,7 @@
 from pyyoutube import Api
 import sys
 sys.path.append("./chat-replay-downloader")
-from chat_replay_downloader import get_chat_replay, get_youtube_messages
+import chat_replay_downloader
 import csv
 import dateutil.parser
 import datetime
@@ -36,8 +36,11 @@ parser.add_argument('-e', dest='end_date', help="End date (YYYY-MM-DD)")
 parser.add_argument('-y', dest='funny', action='store_true', help="Generate funny links only")
 parser.add_argument('-o', dest='teetee', action='store_true', help="Generate wholesome (teetee) links only")
 parser.add_argument('-f', dest='elite', action='store_true', help="Generate elite (faq) links only")
+parser.add_argument('-u', dest='sug', action='store_true', help="Generate suggestive links only")
+parser.add_argument('-r', dest='req', action='store_true', help="Generate requested links only")
 parser.add_argument('-c', dest='compress', action='store_true', help="Compress logs")
 parser.add_argument('-x', dest='decompress', action='store_true', help="Decompress logs")
+parser.add_argument('-d', dest='download', action='store_true', help="Download only")
 args = parser.parse_args()
 
 hljp_names=['AZki', 'Miko', 'Roboco', 'Sora', 'Suisei', 'Mel', 'Haato', 'Fubuki', 'Matsuri', 'Aki', 'Shion', 'Aqua',
@@ -66,9 +69,9 @@ nj_names=['Lulu', 'Hana']
 
 nj_ids=['UU_a1ZYZ8ZTXpjg9xUY9sj8w', 'UUpJtk0myFr5WnyfsmnInP-w']
 
-hlid_names=['Risu', 'Moona', 'Iofi', 'Civia']
+hlid_names=['Risu', 'Moona', 'Iofi', 'Civia', 'Reine', 'Anya', 'Ollie']
 
-hlid_ids=['UUOyYb1c43VlX9rc_lT6NKQw', 'UUP0BspO_AMEe3aQqqpo89Dg', 'UUAoy6rzhSf4ydcYjJw3WoVg', 'UUgNVXGlZIFK96XdEY20sVjg']
+hlid_ids=['UUOyYb1c43VlX9rc_lT6NKQw', 'UUP0BspO_AMEe3aQqqpo89Dg', 'UUAoy6rzhSf4ydcYjJw3WoVg', 'UUgNVXGlZIFK96XdEY20sVjg', 'UUhgTyjG-pdNvxxhdsXfHQ5Q', 'UU727SQYUvx5pDDGQpTICNWg', 'UUYz_5n-uDuChHtLo7My1HnQ']
 
 hs_names=['Miyabi', 'Kira', 'Izuru', 'Aruran', 'Rikka', 'Astel', 'Temma', 'Roberu', 'Shien', 'Oga']
 
@@ -165,13 +168,13 @@ else:
         wr_elite = csv.writer(elite_csv_file, delimiter=',')
         wr_elite.writerow(['streamer', 'title', 'link'])
         elite_csv_file.close()
-    if doAll:
+    if doAll or args.sug:
         lewd_csv_path = path_pre + "/sug_" + args.group.lower() + "_" + date_str + ".csv"
         lewd_csv_file = open(lewd_csv_path, 'w')
         wr_lewd = csv.writer(lewd_csv_file, delimiter=',')
         wr_lewd.writerow(['streamer', 'title', 'link'])
         lewd_csv_file.close()
-    if doAll:
+    if doAll or args.req:
         req_csv_path = path_pre + "/req_" + args.group.lower() + "_" + date_str + ".csv"
         req_csv_file = open(req_csv_path, 'w')
         wr_req = csv.writer(req_csv_file, delimiter=',')
@@ -208,24 +211,37 @@ def download(dir, name, title, vidId):
     success = False
     retryCount = 0
     while not success:
-        if retryCount == 5:
-            print("Unable to get complete chat data, skipping")
+        if retryCount == 10:
+            print("Unable to get complete chat data, skipping: " + name + "-" + title + " - " + vidId)
             return False
         try:
             print("Downloading chat for: " + name + " - " + title)
-            chat = get_youtube_messages(vidId, message_type='all')
-        except Exception as e:
-            print("Chat replay unavailable")
+            crd = chat_replay_downloader.ChatReplayDownloader()
+            chat = crd.get_youtube_messages(vidId, message_type='all')
+        except chat_replay_downloader.NoChatReplay:
+            print("No chat replay, skipping: " + name + " - " + title)
             return False
+        except Exception as e:
+            print("Chat replay unavailable, retrying: " + name + "-" + title)
+            retryCount += 1
+            time.sleep(5)
+            continue
             
-        last_tstamp = chat[-1]['time_in_seconds']
+        last_tstamp = None
+        for line in reversed(chat):
+            if 'time_in_seconds' in line:
+                last_tstamp = line['time_in_seconds']
+                break
+        if not last_tstamp:
+            print("Unable to determine last timestamp: " + name + "-" + title)
+            return False
         end_time = last_tstamp / 60
         vid_by_id = api.get_video_by_id(video_id=vidId)
         vid_duration = isodate.parse_duration(vid_by_id.items[0].contentDetails.duration).seconds
         dur_short = last_tstamp < vid_duration - 60
         if dur_short:
             retryCount += 1
-            print("Duration mismatch (Vid: " + str(vid_duration) + "s, Chat: " + str(last_tstamp) + "s) Retrying...")
+            print("Duration mismatch (Vid: " + str(vid_duration) + "s, Chat: " + str(last_tstamp) + "s) Retrying...: " + name + "-" + title)
             time.sleep(5)
         else:
             return chat
@@ -241,6 +257,26 @@ def chunkDict(data, size):
     it = iter(data)
     for i in range(0, len(data), size):
         yield {k:data[k] for k in islice(it, size)}
+        
+def dfCalc(dlist, vidId, path):
+    dframe = pd.DataFrame(dlist, columns=['tstamp', 'count'])
+    dframe = dframe.set_index(['tstamp'])
+    dframe.index = pd.to_timedelta(dframe.index, unit='s')
+    dframe = dframe.groupby(['tstamp']).sum()
+    dframe = dframe.resample("30S").sum()
+    dframe = dframe[dframe['count'] != 0]
+    dframe.sort_values(by=['count'], inplace=True, ascending=False)
+    dframe.reset_index(inplace=True)
+    if len(dframe):
+        tstamp = str(dframe.iloc[0][0]).split('days')[1].strip()
+        index = reduce(lambda sum, d: sum * 60 + int(d), tstamp.split(":"), 0) - 30
+        if index <= 0:
+            index = 1
+        tstamp = "https://www.youtube.com/watch?v=" + vidId + "&t=" + str(index)
+        ff = open(path, 'a')
+        wr = csv.writer(ff, delimiter=',')
+        wr.writerow([key, vid.snippet.title, tstamp])
+        ff.close()
             
 dl_queue = {}
 for key, val in playlists.items():
@@ -249,12 +285,13 @@ for key, val in playlists.items():
         pub_dt = dateutil.parser.isoparse(pub_date).astimezone(pytz.timezone("Asia/Tokyo"))
         if (start_range <= pub_dt <= end_range):
             if not os.path.isfile(os.path.join(chat_log_dir, vid.snippet.resourceId.videoId)):
-                if vid.snippet.resourceId.videoId != "Jq4cvbPt3Gk":
+                ignore = []
+                if vid.snippet.resourceId.videoId not in ignore :
                     dl_queue[vid.snippet.resourceId.videoId] = (key, vid.snippet.title)
                 
 #set max simultaneous requests to prevent getting blocked by youtube 
-if multiprocessing.cpu_count() > 12:
-    thread_count = 12
+if multiprocessing.cpu_count() > 6:
+    thread_count = 6
 else:
     thread_count = multiprocessing.cpu_count()
 #chunk for low memory (rpi, etc)
@@ -262,7 +299,7 @@ avail_mem = psutil.virtual_memory().free / 1024 / 1024 / 1024
 if avail_mem < 3:
     chunk_size = 30
 else:
-    chunk_size = 1000
+    chunk_size = 100
                 
 
 for chunk in chunkDict(dl_queue, chunk_size):
@@ -274,11 +311,15 @@ for chunk in chunkDict(dl_queue, chunk_size):
             for line in chat:
                 if line['message'] and not 'ticker_duration' in line:
                     msg = line['message'].replace('\n', '').replace('\t', '').replace(',', '')
-                    chat_file.write(str(line['time_in_seconds']) + ',' + msg + '\n')
+                    author = line['author'].replace('\n', '').replace('\t', '').replace(',', '')
+                    chat_file.write(str(line['time_in_seconds']) + ',' + author + ',' + msg + '\n')
             chat_file.close()
     del dl_items
     gc.collect()
-
+    
+if args.download:
+    sys.exit(0)
+    
 for key, val in playlists.items():
     for vid in val.items:
         pub_date = vid.contentDetails.videoPublishedAt
@@ -307,8 +348,16 @@ for key, val in playlists.items():
                 continue
             else:
                 print("Processing chat file for: " + key + " - " + vid.snippet.title)
-                log_file = open(chat_log_dir + '/' + vid.snippet.resourceId.videoId)
-                chat = log_file.readlines()
+                opened = False
+                while not opened:
+                    try:
+                        log_file = open(chat_log_dir + '/' + vid.snippet.resourceId.videoId)
+                        chat = log_file.readlines()
+                    except:
+                        print("Unable to open file, waiting 5 seconds...")
+                        time.sleep(5)
+                    else:
+                        opened = True
                 is_log_file = True
                 last_tstamp = int(chat[-1].split(',', 1)[0])
             
@@ -323,14 +372,15 @@ for key, val in playlists.items():
                     tstamp = msg['time_in_seconds']
                     log_output.write(str(tstamp) + "," + msg_lower + "\n")
                 else:
-                    msg_lower = msg.split(',', 1)[1].lower()
+                    msg_lower = msg.split(',', 2)[2].lower()
                     tstamp = int(msg.split(',', 1)[0])
                     
                 #humor counter
                 has_jp = re.search(jp_regex, msg_lower)
                 w_end = has_jp and msg_lower.endswith("w")
                 if "草" in msg_lower or "kusa" in msg_lower or "grass" in msg_lower or "茶葉" in msg_lower or "_fbkcha" in msg_lower or w_end or msg_lower.endswith("ｗ") or "_lol" in msg_lower or "lmao" in msg_lower or "lmfao" in msg_lower or "haha" in msg_lower or "🤣" in msg_lower or "😆" in msg_lower or "jaja" in msg_lower or "笑" in msg_lower or "xd" in msg_lower or "wkwk" in msg_lower:
-                    humor_list.append([tstamp, 1])
+                    if not (key == "Coco" and "_kusa" in msg_lower):
+                        humor_list.append([tstamp, 1])
                 else:
                     for sub in msg_lower.split():
                         if sub.startswith('lol'):
@@ -365,103 +415,14 @@ for key, val in playlists.items():
             
             #dataframe stuff for finding groupings
             if doAll or args.funny:
-                humor_df = pd.DataFrame(humor_list, columns=['tstamp', 'count'])
-                humor_df = humor_df.set_index(['tstamp'])
-                humor_df.index = pd.to_timedelta(humor_df.index, unit='s')
-                humor_df = humor_df.groupby(['tstamp']).sum()
-                humor_df = humor_df.resample("30S").sum()
-                humor_df = humor_df[humor_df['count'] != 0]
-                humor_df.sort_values(by=['count'], inplace=True, ascending=False)
-                humor_df.reset_index(inplace=True)
-                if len(humor_df):
-                    humor_tstamp = str(humor_df.iloc[0][0]).split('days')[1].strip()
-                    humor_index = reduce(lambda sum, d: sum * 60 + int(d), humor_tstamp.split(":"), 0) - 30
-                    if humor_index <= 0:
-                        humor_index = 1
-                    humor_tstamp = "https://www.youtube.com/watch?v=" + vid.snippet.resourceId.videoId + "&t=" + str(humor_index)
-                    ff = open(funny_csv_path, 'a')
-                    wr_funny = csv.writer(ff, delimiter=',')
-                    wr_funny.writerow([key, vid.snippet.title, humor_tstamp])
-                    ff.close()
+                dfCalc(humor_list, vid.snippet.resourceId.videoId, funny_csv_path)
             if doAll or args.teetee:
-                tete_df = pd.DataFrame(tete_list, columns=['tstamp', 'count'])
-                tete_df = tete_df.set_index(['tstamp'])
-                tete_df.index = pd.to_timedelta(tete_df.index, unit='s')
-                tete_df = tete_df.groupby(['tstamp']).sum()
-                tete_df = tete_df.resample("30S").sum()
-                tete_df = tete_df[tete_df['count'] != 0]
-                tete_df.sort_values(by=['count'], inplace=True, ascending=False)
-                tete_df.reset_index(inplace=True)
-                if len(tete_df):
-                    tete_tstamp = str(tete_df.iloc[0][0]).split('days')[1].strip()
-                    tete_index = reduce(lambda sum, d: sum * 60 + int(d), tete_tstamp.split(":"), 0) - 30
-                    if tete_index <= 0:
-                        tete_index = 1
-                    tete_tstamp = "https://www.youtube.com/watch?v=" + vid.snippet.resourceId.videoId + "&t=" + str(tete_index)
-                    if tete_df.iloc[0][1] >= 5:
-                        tf = open(teetee_csv_path, 'a')
-                        wr_teetee = csv.writer(tf, delimiter=',')
-                        wr_teetee.writerow([key, vid.snippet.title, tete_tstamp])
-                        tf.close()
+                dfCalc(tete_list, vid.snippet.resourceId.videoId, teetee_csv_path)
             if doAll or args.elite:
-                faq_df = pd.DataFrame(faq_list, columns=['tstamp', 'count'])
-                faq_df = faq_df.set_index(['tstamp'])
-                faq_df.index = pd.to_timedelta(faq_df.index, unit='s')
-                faq_df = faq_df.groupby(['tstamp']).sum()
-                faq_df = faq_df.resample("30S").sum()
-                faq_df = faq_df[faq_df['count'] != 0]
-                faq_df.sort_values(by=['count'], inplace=True, ascending=False)
-                faq_df.reset_index(inplace=True)
-                if len(faq_df):
-                    faq_tstamp = str(faq_df.iloc[0][0]).split('days')[1].strip()
-                    faq_index = reduce(lambda sum, d: sum * 60 + int(d), faq_tstamp.split(":"), 0) - 30
-                    if faq_index <= 0:
-                        faq_index = 1
-                    faq_tstamp = "https://www.youtube.com/watch?v=" + vid.snippet.resourceId.videoId + "&t=" + str(faq_index)
-                    if faq_df.iloc[0][1] >= 5:
-                        ef = open(elite_csv_path, 'a')
-                        wr_elite = csv.writer(ef, delimiter=',')
-                        wr_elite.writerow([key, vid.snippet.title, faq_tstamp])
-                        ef.close()
-            if doAll:
-                lewd_df = pd.DataFrame(lewd_list, columns=['tstamp', 'count'])
-                lewd_df = lewd_df.set_index(['tstamp'])
-                lewd_df.index = pd.to_timedelta(lewd_df.index, unit='s')
-                lewd_df = lewd_df.groupby(['tstamp']).sum()
-                lewd_df = lewd_df.resample("30S").sum()
-                lewd_df = lewd_df[lewd_df['count'] != 0]
-                lewd_df.sort_values(by=['count'], inplace=True, ascending=False)
-                lewd_df.reset_index(inplace=True)
-                if len(lewd_df):
-                    lewd_tstamp = str(lewd_df.iloc[0][0]).split('days')[1].strip()
-                    lewd_index = reduce(lambda sum, d: sum * 60 + int(d), lewd_tstamp.split(":"), 0) - 30
-                    if lewd_index <= 0:
-                        lewd_index = 1
-                    lewd_tstamp = "https://www.youtube.com/watch?v=" + vid.snippet.resourceId.videoId + "&t=" + str(lewd_index)
-                    if lewd_df.iloc[0][1] >= 5:
-                        lf = open(lewd_csv_path, 'a')
-                        wr_lewd = csv.writer(lf, delimiter=',')
-                        wr_lewd.writerow([key, vid.snippet.title, lewd_tstamp])
-                        lf.close()
-            if doAll:
-                req_df = pd.DataFrame(req_list, columns=['tstamp', 'count'])
-                req_df = req_df.set_index(['tstamp'])
-                req_df.index = pd.to_timedelta(req_df.index, unit='s')
-                req_df = req_df.groupby(['tstamp']).sum()
-                req_df = req_df.resample("30S").sum()
-                req_df = req_df[req_df['count'] != 0]
-                req_df.sort_values(by=['count'], inplace=True, ascending=False)
-                req_df.reset_index(inplace=True)
-                if len(req_df):
-                    req_tstamp = str(req_df.iloc[0][0]).split('days')[1].strip()
-                    req_index = reduce(lambda sum, d: sum * 60 + int(d), req_tstamp.split(":"), 0) - 30
-                    if req_index <= 0:
-                        req_index = 1
-                    req_tstamp = "https://www.youtube.com/watch?v=" + vid.snippet.resourceId.videoId + "&t=" + str(req_index)
-                    if req_df.iloc[0][1] >= 5:
-                        wf = open(req_csv_path, 'a')
-                        wr_req = csv.writer(wf, delimiter=',')
-                        wr_req.writerow([key, vid.snippet.title, req_tstamp])
-                        wf.close()
+                dfCalc(faq_list, vid.snippet.resourceId.videoId, elite_csv_path)
+            if doAll or args.sug:
+                dfCalc(lewd_list, vid.snippet.resourceId.videoId, lewd_csv_path)
+            if doAll or args.req:
+                dfCalc(req_list, vid.snippet.resourceId.videoId, req_csv_path)
                     
     
