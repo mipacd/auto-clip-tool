@@ -31,6 +31,7 @@ parser.add_argument('group', help="Specify group (hljpen, hljp, hlen, hlid, hs, 
 parser.add_argument('dir', help="Output directory")
 parser.add_argument('-s', dest='start_date', help="Start date (YYYY-MM-DD)")
 parser.add_argument('-e', dest='end_date', help="End date (YYYY-MM-DD)")
+parser.add_argument('-i', dest='ignore', help="List of YouTube video IDs to skip, comma separated")
 parser.add_argument('-y', dest='funny', action='store_true', help="Generate funny links only")
 parser.add_argument('-o', dest='teetee', action='store_true', help="Generate wholesome (teetee) links only")
 parser.add_argument('-f', dest='elite', action='store_true', help="Generate elite (faq) links only")
@@ -67,9 +68,9 @@ nj_names=['Lulu', 'Hana']
 
 nj_ids=['UU_a1ZYZ8ZTXpjg9xUY9sj8w', 'UUpJtk0myFr5WnyfsmnInP-w']
 
-hlid_names=['Risu', 'Moona', 'Iofi', 'Civia', 'Reine', 'Anya', 'Ollie']
+hlid_names=['Risu', 'Moona', 'Iofi', 'Reine', 'Anya', 'Ollie']
 
-hlid_ids=['UUOyYb1c43VlX9rc_lT6NKQw', 'UUP0BspO_AMEe3aQqqpo89Dg', 'UUAoy6rzhSf4ydcYjJw3WoVg', 'UUgNVXGlZIFK96XdEY20sVjg', 'UUhgTyjG-pdNvxxhdsXfHQ5Q', 'UU727SQYUvx5pDDGQpTICNWg', 'UUYz_5n-uDuChHtLo7My1HnQ']
+hlid_ids=['UUOyYb1c43VlX9rc_lT6NKQw', 'UUP0BspO_AMEe3aQqqpo89Dg', 'UUAoy6rzhSf4ydcYjJw3WoVg', 'UUhgTyjG-pdNvxxhdsXfHQ5Q', 'UU727SQYUvx5pDDGQpTICNWg', 'UUYz_5n-uDuChHtLo7My1HnQ']
 
 hs_names=['Miyabi', 'Kira', 'Izuru', 'Aruran', 'Rikka', 'Astel', 'Temma', 'Roberu', 'Shien', 'Oga']
 
@@ -227,7 +228,7 @@ def download(dir, name, title, vidId):
             
         last_tstamp = None
         for line in reversed(chat):
-            if 'time_in_seconds' in line:
+            if 'time_in_seconds' in line and line['time_in_seconds'] <= 43200:
                 last_tstamp = line['time_in_seconds']
                 break
         if not last_tstamp:
@@ -271,10 +272,11 @@ def dfCalc(dlist, vidId, path):
         if index <= 0:
             index = 1
         tstamp = "https://www.youtube.com/watch?v=" + vidId + "&t=" + str(index)
-        ff = open(path, 'a')
-        wr = csv.writer(ff, delimiter=',')
-        wr.writerow([key, vid.snippet.title, tstamp])
-        ff.close()
+        if dframe.iloc[0][1] >= 5:
+            ff = open(path, 'a')
+            wr = csv.writer(ff, delimiter=',')
+            wr.writerow([key, vid.snippet.title, tstamp])
+            ff.close()
             
 dl_queue = {}
 for key, val in playlists.items():
@@ -283,7 +285,10 @@ for key, val in playlists.items():
         pub_dt = dateutil.parser.isoparse(pub_date).astimezone(pytz.timezone("Asia/Tokyo"))
         if (start_range <= pub_dt <= end_range):
             if not os.path.isfile(os.path.join(chat_log_dir, vid.snippet.resourceId.videoId)):
+                #ignore specified vidIDs, script will freeze if premiere is given in pre-chat mode
                 ignore = []
+                if args.ignore:
+                    ignore = args.ignore.split(',')
                 if vid.snippet.resourceId.videoId not in ignore :
                     dl_queue[vid.snippet.resourceId.videoId] = (key, vid.snippet.title)
                 
@@ -307,7 +312,7 @@ for chunk in chunkDict(dl_queue, chunk_size):
         if chat:
             chat_file = open(os.path.join(chat_log_dir, vidId), 'w')
             for line in chat:
-                if line['message'] and not 'ticker_duration' in line:
+                if line['message'] and line['author'] and not 'ticker_duration' in line:
                     msg = line['message'].replace('\n', '').replace('\t', '').replace(',', '')
                     author = line['author'].replace('\n', '').replace('\t', '').replace(',', '')
                     chat_file.write(str(line['time_in_seconds']) + ',' + author + ',' + msg + '\n')
@@ -322,7 +327,6 @@ for key, val in playlists.items():
     for vid in val.items:
         pub_date = vid.contentDetails.videoPublishedAt
         pub_dt = dateutil.parser.isoparse(pub_date).astimezone(pytz.timezone("Asia/Tokyo"))
-        slug_str = slugify(vid.snippet.title)
 
         if (start_range <= pub_dt <= end_range):
             faq_list = []
@@ -422,5 +426,3 @@ for key, val in playlists.items():
                 dfCalc(lewd_list, vid.snippet.resourceId.videoId, lewd_csv_path)
             if doAll or args.req:
                 dfCalc(req_list, vid.snippet.resourceId.videoId, req_csv_path)
-                    
-    
