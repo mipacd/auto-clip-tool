@@ -3,3 +3,4 @@ pytz
 pandas
 joblib
 psutil
+chat-replay-downloader

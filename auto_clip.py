@@ -1,7 +1,6 @@
 from pyyoutube import Api
 import sys
-sys.path.append("./chat-replay-downloader")
-import chat_replay_downloader
+from chat_replay_downloader import ChatDownloader, errors
 import csv
 import dateutil.parser
 import datetime
@@ -23,92 +22,48 @@ import gc
 from itertools import islice
 import multiprocessing
 import psutil
+import streamers
 
-api = Api(api_key='YT_API_KEY')
+try:
+    with open('key.txt', 'r') as f:
+        api = Api(api_key=f.readline())
+except:
+    print("Unable to read API key from key.txt")
+    sys.exit(1)
 
-parser = argparse.ArgumentParser(description='Automatically generate clips from Youtube Chat')
-parser.add_argument('group', help="Specify group (hljpen, hljp, hlen, hlid, hs, hlall, nj, vm, njvm)")
+parser = argparse.ArgumentParser(description='Automatically generate clip URLs from Youtube Chat')
+parser.add_argument('group', help="Specify group or streamer name(s) defined in streamers.py, comma seperated")
 parser.add_argument('dir', help="Output directory")
 parser.add_argument('-s', dest='start_date', help="Start date (YYYY-MM-DD)")
 parser.add_argument('-e', dest='end_date', help="End date (YYYY-MM-DD)")
 parser.add_argument('-i', dest='ignore', help="List of YouTube video IDs to skip, comma separated")
 parser.add_argument('-y', dest='funny', action='store_true', help="Generate funny links only")
 parser.add_argument('-o', dest='teetee', action='store_true', help="Generate wholesome (teetee) links only")
-parser.add_argument('-f', dest='elite', action='store_true', help="Generate elite (faq) links only")
-parser.add_argument('-u', dest='sug', action='store_true', help="Generate suggestive links only")
+parser.add_argument('-f', dest='elite', action='store_true', help="Generate elite (FAQ) links only")
+parser.add_argument('-u', dest='sug', action='store_true', help="Generate suggestive (lewd) links only")
 parser.add_argument('-r', dest='req', action='store_true', help="Generate requested links only")
 parser.add_argument('-c', dest='compress', action='store_true', help="Compress logs")
 parser.add_argument('-x', dest='decompress', action='store_true', help="Decompress logs")
 parser.add_argument('-d', dest='download', action='store_true', help="Download only")
 args = parser.parse_args()
 
-hljp_names=['AZki', 'Miko', 'Roboco', 'Sora', 'Suisei', 'Mel', 'Haato', 'Fubuki', 'Matsuri', 'Aki', 'Shion', 'Aqua',
-    'Ayame', 'Choco', 'Choco', 'Subaru', 'Korone', 'Mio', 'Okayu', 'Noel', 'Rushia', 'Pekora', 'Flare', 'Marine',
-    'Luna', 'Coco', 'Watame', 'Kanata', 'Towa', 'Lamy', 'Nene', 'Botan', 'Polka']
-
-hljp_ids=['UU0TXe_LYZ4scaW2XMyi5_kw', 'UU-hM6YJuNYVAmUWxeIr9FeA', 'UUDqI2jOz0weumE8s7paEk6g', 'UUp6993wxpyDPHUpavwDFqgg',
-    'UU5CwaMl1eIgY8h02uZw7u8A', 'UUD8HOxPs4Xvsm8H0ZxXGiBw', 'UU1CfXB_kRs3C-zaeTG3oGyg', 'UUdn5BQ06XqgXoAxIhbqw5Rg',
-    'UUQ0UDLQCjY0rmuxCDE38FGg', 'UUFTLzh12_nrtzqBPsTCqenA', 'UUXTpFs_3PqI41qX2d9tL2Rw', 'UU1opHUrw8rvnsadT-iGp7Cg',
-    'UU7fk0CB07ly8oSl0aqKkqFg', 'UU1suqwovbL1kzsoaZgFZLKg', 'UUp3tgHXw_HI0QMk1K8qh3gQ', 'UUvzGlP9oQwU--Y0r9id_jnA',
-    'UUhAnqc_AY5_I3Px5dig3X1Q', 'UUp-5t9SrOQwXMU7iIjQfARg', 'UUvaTdHTWBGv3MKj3KVqJVCw', 'UUdyqAaZDKHXg4Ahi7VENThQ',
-    'UUl_gCybOJRIgOXw6Qb4qJzQ', 'UU1DCedRgGHBdm81E1llLhOQ', 'UUvInZx9h3jC2JzsIzoOebWg', 'UUCzUftO8KOVkV4wQG1vkUvg',
-    'UUa9Y57gfeY0Zro_noHRVrnw', 'UUS9uQI-jC3DE0L4IpXyvr6w', 'UUqm3BQLlJfvkTsX_hvm0UmA', 'UUZlDXzGoo7d44bwdNObFacg',
-    'UU1uv2Oq6kNxgATlCiez59hw', 'UUFKOVgVbGmX65RxO3EtH3iw', 'UUAWSyEs_Io8MtpY3m-zqILA', 'UUUKD-uaobj9jiqB-VXt71mA',
-    'UUK9V2B22uJYu3N7eR_BT9QA']
-    
-hlen_names = ['Calli', 'Kiara', 'Ina', 'Gura', 'Amelia']
-
-hlen_ids = ['UUL_qhgtOy0dy1Agp8vkySQg', 'UUHsx4Hqa-1ORjQTh9TYDhww', 'UUMwGHR0BTZuLsmjY_NT5Pwg', 'UUoSrY_IQQVpmIRZ9Xf-y93g', 'UUyl1z3jo3XHR1riLFKG5UAg']
-    
-vm_names=['Pikamee', 'Tomoshika', 'Monoe']
-
-vm_ids=['UUajhBT4nMrg3DLS-bLL2RCg', 'UU3vzVK_N_SUVKqbX69L_X4g', 'UUaFhsCKSSS821N-EcWmPkUQ']
-
-nj_names=['Lulu', 'Hana']
-
-nj_ids=['UU_a1ZYZ8ZTXpjg9xUY9sj8w', 'UUpJtk0myFr5WnyfsmnInP-w']
-
-hlid_names=['Risu', 'Moona', 'Iofi', 'Reine', 'Anya', 'Ollie']
-
-hlid_ids=['UUOyYb1c43VlX9rc_lT6NKQw', 'UUP0BspO_AMEe3aQqqpo89Dg', 'UUAoy6rzhSf4ydcYjJw3WoVg', 'UUhgTyjG-pdNvxxhdsXfHQ5Q', 'UU727SQYUvx5pDDGQpTICNWg', 'UUYz_5n-uDuChHtLo7My1HnQ']
-
-hs_names=['Miyabi', 'Kira', 'Izuru', 'Aruran', 'Rikka', 'Astel', 'Temma', 'Roberu', 'Shien', 'Oga']
-
-hs_ids=['UU6t3-_N8A6ME1JShZHHqOMw', 'UUEzsociuFqVwgZuMaZqaCsg', 'UUZgOv3YDEs-ZnZWDYVwJdmA', 'UUKeAhJvy8zgXWbh9duVjIaQ',
-    'UU9mf_ZVpouoILRY9NUIaK-w', 'UUNVEsYbiZjH5QLmGeSgTSzg', 'UUGNI4MENvnsymYjKiZwv9eg', 'UUANDOlYTJT7N5jlRC3zfzVA',
-    'UUhSvpZYRPh0FvG4SJGSga3g', 'UUwL7dgTxKo8Y4RFIKWaf8gA']
+name_list = []
+pl_list = []
     
 #set group
 if not args.group:
     print("Enter a group")
     sys.exit(1)
-if args.group.lower() == 'hljpen':
-    NAMES = hljp_names + hlen_names
-    PLAYLIST_IDS = hljp_ids + hlen_ids
-elif args.group.lower() == 'hljp':
-    NAMES = hljp_names
-    PLAYLIST_IDS = hljp_ids
-elif args.group.lower() == 'hlen':
-    NAMES = hlen_names
-    PLAYLIST_IDS = hlen_ids
-elif args.group.lower() == 'hlid':
-    NAMES = hlid_names
-    PLAYLIST_IDS = hlid_ids
-elif args.group.lower() == 'hs':
-    NAMES = hs_names
-    PLAYLIST_IDS = hs_ids
-elif args.group.lower() == 'hlall':
-    NAMES = hljp_names + hlen_names + hlid_names + hs_names
-    PLAYLIST_IDS = hljp_ids + hlen_ids + hlid_ids + hs_ids
-elif args.group.lower() == 'nj':
-    NAMES = nj_names
-    PLAYLIST_IDS = nj_ids
-elif args.group.lower() == 'vm':
-    NAMES = vm_names
-    PLAYLIST_IDS = vm_ids
-elif args.group.lower() == 'njvm':
-    NAMES = nj_names + vm_names
-    PLAYLIST_IDS = nj_ids + vm_ids
+else:
+    targets = args.group.lower().split(',')
+    for tgt in targets:
+        if tgt in streamers.group_dict:
+            for name in streamers.group_dict[tgt]:
+                name_list.append(name.capitalize())
+                pl_list.append(streamers.channel_ids[name])
+        elif tgt in streamers.channel_ids:
+            name_list.append(tgt.capitalize())
+            pl_list.append(streamers.channel_ids[tgt])
 
 #date calculations
 jp_now = datetime.datetime.now().astimezone(pytz.timezone('Asia/Tokyo'))
@@ -200,9 +155,9 @@ if args.decompress:
 pl_idx = 0
 playlists = {}
 jp_regex = "[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f]"
-for name in NAMES:
+for name in name_list:
     playlists[name] = []
-    playlists[name]= api.get_playlist_items(playlist_id=PLAYLIST_IDS[pl_idx], count=None)
+    playlists[name]= api.get_playlist_items(playlist_id=pl_list[pl_idx], count=None)
     pl_idx += 1
     
 #chat download function
@@ -215,9 +170,9 @@ def download(dir, name, title, vidId):
             return False
         try:
             print("Downloading chat for: " + name + " - " + title)
-            crd = chat_replay_downloader.ChatReplayDownloader()
-            chat = crd.get_youtube_messages(vidId, message_type='all')
-        except chat_replay_downloader.NoChatReplay:
+            crd = ChatDownloader()
+            chat = crd.get_chat(f"https://youtube.com/watch?v={vidId}", message_types=['text_message', 'paid_message'])
+        except errors.NoChatReplay:
             print("No chat replay, skipping: " + name + " - " + title)
             return False
         except Exception as e:
@@ -226,14 +181,7 @@ def download(dir, name, title, vidId):
             time.sleep(5)
             continue
             
-        last_tstamp = None
-        for line in reversed(chat):
-            if 'time_in_seconds' in line and line['time_in_seconds'] <= 43200:
-                last_tstamp = line['time_in_seconds']
-                break
-        if not last_tstamp:
-            print("Unable to determine last timestamp: " + name + "-" + title)
-            return False
+        last_tstamp = chat.duration
         end_time = last_tstamp / 60
         vid_by_id = api.get_video_by_id(video_id=vidId)
         vid_duration = isodate.parse_duration(vid_by_id.items[0].contentDetails.duration).seconds
@@ -249,8 +197,8 @@ def downloadChat(name, title, vidId):
     chat = download(chat_log_dir, name, title, vidId)
     if not chat:
         return (vidId, None)
-    
-    return (vidId, chat)
+        
+    return (vidId, list(chat))
     
 def chunkDict(data, size):
     it = iter(data)
@@ -312,10 +260,11 @@ for chunk in chunkDict(dl_queue, chunk_size):
         if chat:
             chat_file = open(os.path.join(chat_log_dir, vidId), 'w')
             for line in chat:
-                if line['message'] and line['author'] and not 'ticker_duration' in line:
-                    msg = line['message'].replace('\n', '').replace('\t', '').replace(',', '')
-                    author = line['author'].replace('\n', '').replace('\t', '').replace(',', '')
-                    chat_file.write(str(line['time_in_seconds']) + ',' + author + ',' + msg + '\n')
+                if 'message' in line and 'author' in line and not 'ticker_duration' in line:
+                    if line['time_in_seconds'] > 0:
+                        msg = line['message'].replace('\n', '').replace('\t', '').replace(',', '')
+                        author = line['author']['name'].replace('\n', '').replace('\t', '').replace(',', '')
+                        chat_file.write(str(line['time_in_seconds']) + ',' + author + ',' + msg + '\n')
             chat_file.close()
     del dl_items
     gc.collect()
@@ -361,7 +310,7 @@ for key, val in playlists.items():
                     else:
                         opened = True
                 is_log_file = True
-                last_tstamp = int(chat[-1].split(',', 1)[0])
+                last_tstamp = int(float(chat[-1].split(',', 1)[0]))
             
             for msg in chat:
                 if not is_log_file:
@@ -375,7 +324,7 @@ for key, val in playlists.items():
                     log_output.write(str(tstamp) + "," + msg_lower + "\n")
                 else:
                     msg_lower = msg.split(',', 2)[2].lower()
-                    tstamp = int(msg.split(',', 1)[0])
+                    tstamp = int(float(msg.split(',', 1)[0]))
                     
                 #humor counter
                 has_jp = re.search(jp_regex, msg_lower)
