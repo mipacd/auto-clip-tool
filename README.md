@@ -53,7 +53,7 @@ Other options:
 
 
 # Auto-Clip
-Generate video clips / compilations from Auto-Link datasets. Requires Python (not if using binary), youtube-dl and ffmpeg.(in PATH).
+Generate video clips / compilations from Auto-Link datasets. Requires Python 3.7+, youtube-dl and ffmpeg (in same directory or PATH).
 Optionally requires the vcsi Python package for thumbnail generation. [This YouTube channel](https://www.youtube.com/channel/UC6sfBMKXtwZBJ7j5WPyvf6g/videos) has examples of generated videos.
 
 ## Usage
