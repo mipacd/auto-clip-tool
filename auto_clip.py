@@ -72,6 +72,8 @@ with open(args.path, newline='', encoding='utf-8') as csvfile:
             #skip covers
             if "cover" in title.lower():
                 continue
+                
+            url = full_url.split('&')[0]
                     
             #write new streamer timestamp for YT descriptions
             if args.desc:
@@ -81,11 +83,13 @@ with open(args.path, newline='', encoding='utf-8') as csvfile:
                         channel = streamers.channel_ids[streamer.lower()].replace("UU", "UC", 1)
                         desc_file.write(f"https://www.youtube.com/channel/{channel}\n")
                     last_streamer = streamer
+                desc_file.write(title + '\n')
+                desc_file.write(url + '\n')
                 
-            url = full_url.split('&')[0]
+            
             vid_id = url.split('=')[1]
             timecode = full_url.split('=')[2]
-            filename = f"{clip_dir}/{vid_id}.mp4"
+            filename = f"{clip_dir}/{vid_id}-{timecode}.mp4"
             url_list.append(url)
             
             #process stream if file doesn't exist
