@@ -18,31 +18,49 @@ A Python 3.7+ environment with pip installed. Tested on Windows 10 and Linux. Sh
 `usage: auto_clip.py [-h] [-s START_DATE] [-e END_DATE] [-i IGNORE] [-y] [-o] [-f] [-u] [-r] [-c] [-x] [-d] group dir`  
 
 Required arguments:  
+
 group - Name of group or one or more streamers (comma seperated) defined in streamers.py  
+
 dir - Output directory. Subdirectories are created in this directory. Output CSVs are stored in "dir/start_date/". Chat logs are stored in "dir/start_date/logs".  
 
 Optional arguments:  
+
 -h, --help Help message  
+
 -s START_DATE Provide a start date. If given, an end date is required. Default: 8 days ago.  
+
 -e END_DATE Provide an end date. If given, a start date is required. Default: 1 day ago.  
+
 -i IGNORE Provide a list of YouTube video IDs to skip. The script will freeze if there is an unaired premiere created before the end date.  
+
+-n Number of links to attempt to generate of each type. Less may be generated depending on number of chat regions of interest. Manual inspection is recommended to ensure links don't overlap.  
 
 -f FEATURE Provide one or more features to generate links for (comma seperated). By default all types of links are generated in seperate CSVs. Current feature types:  
 
 humor - Generate funny links (groupings of LOL, kusa, etc., sometimes generates links with discussions of these terms instead, or scenes about grass)  
+
 teetee - Generate wholesome (teetee) links (wholesome moments, works best on JP language streams)  
+
 faq - Generate FAQ links (may also generate links to "We Will Rock You" renditions)  
+
 lewd - Generate links to what chat believed was lewd  
+
 clip -  Generate requested links (groupings of "clip this")  
+
 fail - Generate links to fails (F, RIP, and fail)  
+
 hic - Generate links to HIC groupings (for [Amelia Watson](https://www.youtube.com/channel/UCyl1z3jo3XHR1riLFKG5UAg) streams)  
 
 Other options:  
+
 -o Adjust negative offset for feature grouping. Groupings are in 30-second buckets. Default: 30  
--t Specify tz database timezone for start and end dates. Default: Asia/Tokyo
--n Number of links to attempt to generate of each type. Less may be generated depending on number of chat regions of interest. Manual inspection is recommended to ensure links don't overlap.  
+
+-t Specify tz database timezone for start and end dates. Default: Asia/Tokyo  
+
 -c Compress logs (compress the log directory as a .tar.xz, requires tar utility)  
+
 -x Decompress logs (decompress the log directory, requires tar utility)  
+
 -d Download logs without generating links
 
 ## Examples
