@@ -1,5 +1,3 @@
-
-
 from pyyoutube import Api
 import sys
 from chat_replay_downloader import ChatDownloader, errors
@@ -15,7 +13,6 @@ from datetime import timedelta
 from collections import Counter, defaultdict
 import isodate
 from functools import reduce
-import traceback
 import argparse
 import tarfile
 from joblib import Parallel, delayed
@@ -24,7 +21,9 @@ import gc
 from itertools import islice
 import multiprocessing
 import psutil
+
 import streamers
+from util import feature_check
 
 try:
     with open('key.txt', 'r') as f:
@@ -33,21 +32,20 @@ except:
     print("Unable to read API key from key.txt")
     sys.exit(1)
 
-parser = argparse.ArgumentParser(description='Automatically generate clip URLs from Youtube Chat')
+parser = argparse.ArgumentParser(description='Automatically generate clip URLs from Youtube Chat', formatter_class=argparse.RawTextHelpFormatter)
 parser.add_argument('group', help="Specify group or streamer name(s) defined in streamers.py, comma seperated")
 parser.add_argument('dir', help="Output directory")
-parser.add_argument('-s', dest='start_date', help="Start date (YYYY-MM-DD)")
-parser.add_argument('-e', dest='end_date', help="End date (YYYY-MM-DD)")
-parser.add_argument('-n', dest='number_of_links', default=1, help="Attempt to generate the specified number of links per category")
+parser.add_argument('-s', dest='start_date', help="Start date (YYYY-MM-DD). Default: 8 days ago")
+parser.add_argument('-e', dest='end_date', help="End date (YYYY-MM-DD). Default: 1 day ago")
+parser.add_argument('-n', dest='number_of_links', default=1, help="Attempt to generate the specified number of links per feature for each VOD. Default: 1")
+parser.add_argument('-f', dest='features', default="all", help="Feature type CSVs to generate (comma seperated), Default: all\n" \
+    "Feature types: humor, teetee, faq, lewd, clip, fail, hic")
+parser.add_argument('-o', dest='offset', default='30', help="Negative offset (in seconds) from feature grouping. Default: 30")
+parser.add_argument('-t', dest='timezone', default='Asia/Tokyo', help="tz database timezone. Default: Asia/Tokyo")
 parser.add_argument('-i', dest='ignore', help="List of YouTube video IDs to skip, comma separated")
-parser.add_argument('-y', dest='funny', action='store_true', help="Generate funny links only")
-parser.add_argument('-o', dest='teetee', action='store_true', help="Generate wholesome (teetee) links only")
-parser.add_argument('-f', dest='elite', action='store_true', help="Generate elite (FAQ) links only")
-parser.add_argument('-u', dest='sug', action='store_true', help="Generate suggestive (lewd) links only")
-parser.add_argument('-r', dest='req', action='store_true', help="Generate requested links only")
 parser.add_argument('-c', dest='compress', action='store_true', help="Compress logs")
 parser.add_argument('-x', dest='decompress', action='store_true', help="Decompress logs")
-parser.add_argument('-d', dest='download', action='store_true', help="Download only")
+parser.add_argument('-d', dest='download', action='store_true', help="Download logs only")
 args = parser.parse_args()
 
 name_list = []
@@ -69,7 +67,7 @@ else:
             pl_list.append(streamers.channel_ids[tgt])
 
 #date calculations
-jp_now = datetime.datetime.now().astimezone(pytz.timezone('Asia/Tokyo'))
+jp_now = datetime.datetime.now().astimezone(pytz.timezone(args.timezone))
 if (args.start_date and not args.end_date) or (args.end_date and not args.start_date):
     print("Start date and end date required")
     sys.exit(1)
@@ -88,16 +86,11 @@ else:
         sys.exit(1)
     start_date = datetime.datetime(int(start_split[0]), int(start_split[1]), int(start_split[2]), 0, 0, 0)
     end_date = datetime.datetime(int(end_split[0]), int(end_split[1]), int(end_split[2]), 23, 59, 59)
-start_range = datetime.datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0, tzinfo=pytz.timezone("Asia/Tokyo"))
-end_range = datetime.datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59, tzinfo=pytz.timezone("Asia/Tokyo"))
+start_range = datetime.datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0, tzinfo=pytz.timezone(args.timezone))
+end_range = datetime.datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59, tzinfo=pytz.timezone(args.timezone))
 date_str = start_date.strftime("%Y-%m-%d")
 
-if not args.funny and not args.teetee and not args.elite:
-    doAll = True
-else:
-    doAll = False
-
-#setup working dir
+# setup working dir and initialize csvs
 if not args.dir:
     print("Output directory missing")
     sys.exit(1)
@@ -108,38 +101,25 @@ else:
     Path(chat_log_dir).mkdir(parents=True, exist_ok=True)
     Path(path_pre).mkdir(parents=True, exist_ok=True)
     
-    if doAll or args.funny:
-        funny_csv_path = path_pre + "/funny_" + args.group.lower() + "_" + date_str + ".csv"
-        funny_csv_file = open(funny_csv_path, 'w', newline='', encoding='utf-8')
-        wr_funny = csv.writer(funny_csv_file, delimiter=',')
-        wr_funny.writerow(['streamer', 'title', 'link'])
-        funny_csv_file.close()
-    if doAll or args.teetee:
-        teetee_csv_path = path_pre + "/wholesome_" + args.group.lower() + "_" + date_str + ".csv"
-        teetee_csv_file = open(teetee_csv_path, 'w', newline='', encoding='utf-8')
-        wr_teetee = csv.writer(teetee_csv_file, delimiter=',')
-        wr_teetee.writerow(['streamer', 'title', 'link'])
-        teetee_csv_file.close()
-    if doAll or args.elite:
-        elite_csv_path = path_pre + "/elite_" + args.group.lower() + "_" + date_str + ".csv"
-        elite_csv_file = open(elite_csv_path, 'w', newline='', encoding='utf-8')
-        wr_elite = csv.writer(elite_csv_file, delimiter=',')
-        wr_elite.writerow(['streamer', 'title', 'link'])
-        elite_csv_file.close()
-    if doAll or args.sug:
-        lewd_csv_path = path_pre + "/sug_" + args.group.lower() + "_" + date_str + ".csv"
-        lewd_csv_file = open(lewd_csv_path, 'w', newline='', encoding='utf-8')
-        wr_lewd = csv.writer(lewd_csv_file, delimiter=',')
-        wr_lewd.writerow(['streamer', 'title', 'link'])
-        lewd_csv_file.close()
-    if doAll or args.req:
-        req_csv_path = path_pre + "/req_" + args.group.lower() + "_" + date_str + ".csv"
-        req_csv_file = open(req_csv_path, 'w', newline='', encoding= 'utf-8')
-        wr_req = csv.writer(req_csv_file, delimiter=',')
-        wr_req.writerow(['streamer', 'title', 'link'])
-        req_csv_file.close()
+    csv_path_dict = {}
+    csv_file_dict = {}
+    csv_writer_dict = {}
+    
+    make_csvs = []
+    if args.features == 'all':
+        make_csvs = feature_check.feature_list
+    else:
+        for feat in args.features.split(','):
+            make_csvs.append(feat)
+    
+    for feature in make_csvs:
+        csv_path_dict[feature] = path_pre + "/" + feature + "_" + args.group.lower() + "_" + date_str + ".csv"
+        csv_file_dict[feature] = open(csv_path_dict[feature], 'w', newline='', encoding='utf-8')
+        csv_writer_dict[feature] = csv.writer(csv_file_dict[feature], delimiter=',')
+        csv_writer_dict[feature].writerow(['streamer', 'title', 'link'])
+        csv_file_dict[feature].close()
 
-#log compression/decompression
+# log compression/decompression
 if args.compress:
     print("Compressing logs")
     tar = tarfile.open(path_pre + "/logs.tar.xz", "w:xz")
@@ -155,16 +135,15 @@ if args.decompress:
     print("Decompression complete")
     sys.exit(0)
     
-#get video playlists from yt api
+# get video playlists from yt api
 pl_idx = 0
 playlists = {}
-jp_regex = "[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f]"
 for name in name_list:
     playlists[name] = []
     playlists[name]= api.get_playlist_items(playlist_id=pl_list[pl_idx], count=None)
     pl_idx += 1
     
-#chat download function
+# chat download function
 def download(dir, name, title, vidId):
     success = False
     retryCount = 0
@@ -209,7 +188,7 @@ def chunkDict(data, size):
     for i in range(0, len(data), size):
         yield {k:data[k] for k in islice(it, size)}
         
-def dfCalc(dlist, vidId, path):
+def dfCalc(dlist, vidId, path, offset):
     dframe = pd.DataFrame(dlist, columns=['tstamp', 'count'])
     dframe = dframe.set_index(['tstamp'])
     dframe.index = pd.to_timedelta(dframe.index, unit='s')
@@ -226,21 +205,26 @@ def dfCalc(dlist, vidId, path):
             num_links = len(dframe) - 1
         ff = open(path, 'a', newline='', encoding='utf-8')
         wr = csv.writer(ff, delimiter=',')
+        has_written = False
         for i in range(0, num_links):
             if dframe.iloc[i][1] >= 5:
                 tstamp = str(dframe.iloc[i][0]).split('days')[1].strip()
-                index = reduce(lambda sum, d: sum * 60 + int(d), tstamp.split(":"), 0) - 30
+                index = reduce(lambda sum, d: sum * 60 + int(d), tstamp.split(":"), 0) - offset
                 if index <= 0:
                     index = 1
                 tstamp = "https://www.youtube.com/watch?v=" + vidId + "&t=" + str(index)
                 wr.writerow([key, vid.snippet.title, tstamp])
+                has_written = True
         ff.close()
+        if not has_written:
+            os.remove(path)
             
+# assemble lists of video ids to download logs for, skipping logs we already have
 dl_queue = {}
 for key, val in playlists.items():
     for vid in reversed(val.items):
         pub_date = vid.contentDetails.videoPublishedAt
-        pub_dt = dateutil.parser.isoparse(pub_date).astimezone(pytz.timezone("Asia/Tokyo"))
+        pub_dt = dateutil.parser.isoparse(pub_date).astimezone(pytz.timezone(args.timezone))
         if (start_range <= pub_dt <= end_range):
             if not os.path.isfile(os.path.join(chat_log_dir, vid.snippet.resourceId.videoId)):
                 #ignore specified vidIDs, script will freeze if premiere is given in pre-chat mode
@@ -262,7 +246,7 @@ if avail_mem < 3:
 else:
     chunk_size = 100
                 
-
+# chunk for simultaneous downloads
 for chunk in chunkDict(dl_queue, chunk_size):
     dl_items = Parallel(n_jobs=thread_count)(delayed(downloadChat)(val[0], val[1], key) for key, val in chunk.items())
 
@@ -279,30 +263,22 @@ for chunk in chunkDict(dl_queue, chunk_size):
     del dl_items
     gc.collect()
     
+# stop here if download only is set
 if args.download:
     sys.exit(0)
     
+# parse each chat file
 for key, val in playlists.items():
     for vid in reversed(val.items):
         pub_date = vid.contentDetails.videoPublishedAt
-        pub_dt = dateutil.parser.isoparse(pub_date).astimezone(pytz.timezone("Asia/Tokyo"))
+        pub_dt = dateutil.parser.isoparse(pub_date).astimezone(pytz.timezone(args.timezone))
 
         if (start_range <= pub_dt <= end_range):
-            faq_list = []
-            faq_list.append([timedelta(seconds=0), 0])
-            tete_list = []
-            tete_list.append([timedelta(seconds=0), 0])
-            humor_list = []
-            humor_list.append([timedelta(seconds=0), 0])
-            lewd_list = []
-            lewd_list.append([timedelta(seconds=0), 0])
-            req_list = []
-            req_list.append([timedelta(seconds=0), 0])
-            faq_tstamp = ""
-            tete_tstamp = ""
-            humor_tstamp = ""
-            lewd_tstamp = ""
-            req_tstamp = ""
+        
+            feature_dict = defaultdict(list)
+            for feature in feature_check.feature_list:
+                feature_dict[feature].append([timedelta(seconds=0), 0])
+           
             is_log_file = False
             
             if not os.path.isfile(os.path.join(chat_log_dir, vid.snippet.resourceId.videoId)):
@@ -336,52 +312,34 @@ for key, val in playlists.items():
                     msg_lower = msg.split(',', 2)[2].lower()
                     tstamp = int(float(msg.split(',', 1)[0]))
                     
-                #humor counter
-                has_jp = re.search(jp_regex, msg_lower)
-                w_end = has_jp and msg_lower.endswith("w")
-                if "草" in msg_lower or "kusa" in msg_lower or "grass" in msg_lower or "茶葉" in msg_lower or "_fbkcha" in msg_lower or w_end or msg_lower.endswith("ｗ") or "_lol" in msg_lower or "lmao" in msg_lower or "lmfao" in msg_lower or "haha" in msg_lower or "🤣" in msg_lower or "😆" in msg_lower or "jaja" in msg_lower or "笑" in msg_lower or "xd" in msg_lower or "wkwk" in msg_lower:
-                    if not (key == "Coco" and "_kusa" in msg_lower):
-                        humor_list.append([tstamp, 1])
-                else:
-                    for sub in msg_lower.split():
-                        if sub.startswith('lol'):
-                            humor_list.append([tstamp, 1])
-                            break
+                # humor counter
+                if feature_check.has_humor(msg_lower, key): feature_dict['humor'].append([tstamp, 1])
                          
-                #teetee counter
-                if "てぇてぇ" in msg_lower or ":_tee::_tee:" in msg_lower or "tee tee" in msg_lower or "teetee" in msg_lower or "tete" in msg_lower:
-                    tete_list.append([tstamp, 1])
+                # teetee counter
+                if feature_check.has_teetee(msg_lower): feature_dict['teetee'].append([tstamp, 1])
                 
-                #faq counters
-                if "faq" in msg_lower:
-                    faq_list.append([tstamp, 1])
+                # faq counter
+                if feature_check.has_faq(msg_lower): feature_dict['faq'].append([tstamp, 1])
                     
-                #lewd counter
-                if "lewd" in msg_lower:
-                    lewd_list.append([tstamp, 1])
+                # lewd counter
+                if feature_check.has_lewd(msg_lower): feature_dict['lewd'].append([tstamp, 1])
                     
-                #requested counter
-                if "clip" in msg_lower:
-                    req_list.append([tstamp, 1])
+                # requested clip counter
+                if feature_check.has_clip(msg_lower): feature_dict['clip'].append([tstamp, 1])
+                    
+                # fail counter
+                if feature_check.has_fail(msg_lower): feature_dict['fail'].append([tstamp, 1])
+                    
+                # hic counter
+                if feature_check.has_hic(msg_lower): feature_dict['hic'].append([tstamp, 1])
                 
             if not is_log_file:    
                 log_output.close()
                 
-            #append zero to last time
-            humor_list.append([last_tstamp, 0])
-            tete_list.append([last_tstamp, 0])
-            faq_list.append([last_tstamp, 0])
-            lewd_list.append([last_tstamp, 0])
-            req_list.append([last_tstamp, 0])
+            # append zero to last time
+            for feature in feature_check.feature_list:
+                feature_dict[feature].append([last_tstamp, 0])
             
-            #dataframe stuff for finding groupings
-            if doAll or args.funny:
-                dfCalc(humor_list, vid.snippet.resourceId.videoId, funny_csv_path)
-            if doAll or args.teetee:
-                dfCalc(tete_list, vid.snippet.resourceId.videoId, teetee_csv_path)
-            if doAll or args.elite:
-                dfCalc(faq_list, vid.snippet.resourceId.videoId, elite_csv_path)
-            if doAll or args.sug:
-                dfCalc(lewd_list, vid.snippet.resourceId.videoId, lewd_csv_path)
-            if doAll or args.req:
-                dfCalc(req_list, vid.snippet.resourceId.videoId, req_csv_path)
+            # dataframe calculations and csv output
+            for feature in make_csvs:
+                dfCalc(feature_dict[feature], vid.snippet.resourceId.videoId, csv_path_dict[feature], int(args.offset))
