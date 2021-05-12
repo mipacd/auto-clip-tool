@@ -1,6 +1,6 @@
 import re
 
-feature_list = ['humor', 'teetee', 'faq', 'lewd', 'clip', 'fail', 'hic']
+feature_list = ['humor', 'teetee', 'faq', 'lewd', 'clip', 'fail', 'hic', 'superchat']
 
 def has_humor(msg, streamer):
     humor_list = ["草", "kusa", "grass", "茶葉", "_fbkcha", "_lol", "lmao", "lmfao", "haha", "🤣", "😆", "jaja", "笑",
@@ -35,9 +35,10 @@ def has_clip(msg):
     return "clip" in msg
     
 def has_fail(msg):
-    fail_list = ["rip", "fail"]
-
-    return msg == "f" or any(substring in msg for substring in fail_list)
+    has_f = re.search(r"\bf\b", msg)
+    has_rip = re.search(r"\brip\b", msg)
+    has_fail = re.search(r"\bfail\b", msg)
+    return has_f or has_rip or has_fail
 
 def has_hic(msg):
     hic_list = ["hic", "h i c", ":_hic1::_hic2:_hic3:"]

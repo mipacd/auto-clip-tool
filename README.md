@@ -51,6 +51,8 @@ fail - Generate links to fails (F, RIP, and fail)
 
 hic - Generate links to HIC groupings (for [Amelia Watson](https://www.youtube.com/channel/UCyl1z3jo3XHR1riLFKG5UAg) streams)  
 
+superchat - Generate links to superchat groupings  
+
 Other options:  
 
 -o Adjust negative offset for feature grouping. Groupings are in 30-second buckets. Default: 30  
