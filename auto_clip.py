@@ -100,6 +100,7 @@ with open(args.path, newline='', encoding='utf-8') as csvfile:
                 vid_strm = proc.communicate()[0]
                 vid_strm = vid_strm.decode('utf-8').split('\n')
                 
+                
                 #timecode adjustments for start of stream and iframe detection
                 ss = 30
                 if int(timecode) > 30:
@@ -110,7 +111,10 @@ with open(args.path, newline='', encoding='utf-8') as csvfile:
                 end_time = str(datetime.timedelta(seconds=int(timecode)) + datetime.timedelta(seconds=args.length))
                 length = str(datetime.timedelta(seconds=args.length))
                 
-                proc = subprocess.Popen(f"ffmpeg -ss {start_time} -i \"{vid_strm[0]}\" -ss {start_time} -i \"{vid_strm[1]}\" -map 0:v -map 1:a -ss {str(ss)} -t {length} -c:v libx264 -r 30 -c:a aac -ar 48000 -b:a 192k -avoid_negative_ts make_zero -fflags +genpts \"{filename}\"", shell=True)
+                if vid_strm[1] != '':
+                    proc = subprocess.Popen(f"ffmpeg -ss {start_time} -i \"{vid_strm[0]}\" -ss {start_time} -i \"{vid_strm[1]}\" -map 0:v -map 1:a -ss {str(ss)} -t {length} -c:v libx264 -r 30 -c:a aac -ar 48000 -b:a 192k -avoid_negative_ts make_zero -fflags +genpts \"{filename}\"", shell=True)
+                else:
+                    proc = subprocess.Popen(f"ffmpeg -ss {start_time} -i \"{vid_strm[0]}\" -ss {start_time} -ss {str(ss)} -t {length} -c:v libx264 -r 30 -c:a aac -ar 48000 -b:a 192k -avoid_negative_ts make_zero -fflags +genpts \"{filename}\"", shell=True)
                 out = proc.communicate()
                 
             

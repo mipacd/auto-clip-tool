@@ -126,14 +126,14 @@ def download_chat(dir, name, title, vidId, api):
     while not success:
         if retryCount == 10:
             print("Unable to get complete chat data, skipping: " + name + "-" + title + " - " + vidId)
-            return False
+            return (vidId, None)
         try:
             print("Downloading chat for: " + name + " - " + title)
             crd = ChatDownloader()
             chat = crd.get_chat(f"https://youtube.com/watch?v={vidId}", message_types=['text_message', 'paid_message'])
         except errors.NoChatReplay:
             print("No chat replay, skipping: " + name + " - " + title)
-            return False
+            return (vidId, None)
         except Exception as e:
             print("Chat replay unavailable, retrying: " + name + "-" + title)
             retryCount += 1
@@ -228,7 +228,7 @@ def parallel_download(thread_count, chunk_size, dl_queue, api, chat_log_dir):
     # chunk for simultaneous downloads
     for chunk in chunk_dict(dl_queue, chunk_size):
         dl_items = Parallel(n_jobs=thread_count)(delayed(download_chat)(chat_log_dir, val[0], val[1], key, api) for key, val in chunk.items())
-
+        
         for vidId, chat in dl_items:
             if chat:
                 chat_file = open(os.path.join(chat_log_dir, vidId), 'w', encoding='utf-8')
