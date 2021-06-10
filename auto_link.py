@@ -21,13 +21,14 @@ if __name__ == "__main__":
     parser.add_argument('-e', dest='end_date', help="End date (YYYY-MM-DD). Default: 1 day ago")
     parser.add_argument('-n', dest='number_of_links', default=1, help="Attempt to generate the specified number of links per feature for each VOD. Default: 1")
     parser.add_argument('-f', dest='features', default="all", help="Feature type CSVs to generate (comma seperated), Default: all\n" \
-        "Feature types: humor, teetee, faq, lewd, clip, fail, hic, superchat")
+        "Feature types: humor, teetee, faq, lewd, clip, fail, hic, inaff, guh, guramm, superchat")
     parser.add_argument('-o', dest='offset', default='30', help="Negative offset (in seconds) from feature grouping. Default: 30")
     parser.add_argument('-t', dest='timezone', default='Asia/Tokyo', help="tz database timezone. Default: Asia/Tokyo")
     parser.add_argument('-i', dest='ignore', help="List of YouTube video IDs to skip, comma separated")
     parser.add_argument('-c', dest='compress', action='store_true', help="Compress logs")
     parser.add_argument('-x', dest='decompress', action='store_true', help="Decompress logs")
     parser.add_argument('-d', dest='download', action='store_true', help="Download logs only")
+    parser.add_argument('-u', dest='dump', action='store_true', help="Dump one-minute feature counts above 10 (event counter)")
     args = parser.parse_args()
 
     # date calculations
@@ -35,7 +36,7 @@ if __name__ == "__main__":
     date_str = start_range.strftime("%Y-%m-%d")
 
     # setup working dir and initialize csvs
-    csv_path_dict, csv_file_dict, csv_writer_dict, base_path, chat_log_dir = lf.setup_output_files(args.dir, date_str, args.features, args.group)
+    csv_path_dict, csv_writer_dict, base_path, chat_log_dir = lf.setup_output_files(args.dir, date_str, args.features, args.group, args.dump)
 
     # log compression/decompression
     if args.compress:
@@ -131,8 +132,18 @@ if __name__ == "__main__":
                         # hic counter
                         if feature_check.has_hic(msg_lower): feature_dict['hic'].append([tstamp, 1])
                         
+                        # inaff counter
+                        if feature_check.has_inaff(msg_lower): feature_dict['inaff'].append([tstamp, 1])
+                        
+                        # guh counter
+                        if feature_check.has_guh(msg_lower): feature_dict['guh'].append([tstamp, 1])
+                        
                         # superchat counter
                         if superchat: feature_dict['superchat'].append([tstamp, 1])
+                        
+                        if feature_check.has_tmt(msg_lower): feature_dict['tmt'].append([tstamp, 1])
+                        
+                        if feature_check.has_bottomleft(msg_lower): feature_dict['bottomleft'].append([tstamp, 1])
                         
                     if not is_log_file:    
                         log_output.close()
@@ -143,4 +154,4 @@ if __name__ == "__main__":
                     
                     # dataframe calculations and csv output
                     for feature in csv_path_dict.keys():
-                        lf.df_calc(feature_dict[feature], vid.snippet.resourceId.videoId, csv_path_dict[feature], int(args.offset), int(args.number_of_links), key, vid.snippet.title)
+                        lf.df_calc(feature_dict[feature], vid.snippet.resourceId.videoId, csv_path_dict[feature], int(args.offset), int(args.number_of_links), key, vid.snippet.title, args.dump)

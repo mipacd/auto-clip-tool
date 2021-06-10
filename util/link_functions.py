@@ -1,4 +1,5 @@
 from chat_replay_downloader import ChatDownloader, errors
+from datetime import timedelta
 from functools import reduce
 from itertools import islice
 from joblib import Parallel, delayed
@@ -66,7 +67,7 @@ def calc_dates(start_date_a, end_date_a, timezone):
     end_range = datetime.datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59, tzinfo=pytz.timezone(timezone))
     return start_range, end_range
     
-def setup_output_files(directory, date_str, features, group):
+def setup_output_files(directory, date_str, features, group, dump):
     base_path = directory + "/" + date_str
     
     chat_log_dir = directory + "/logs"
@@ -90,8 +91,14 @@ def setup_output_files(directory, date_str, features, group):
         csv_writer_dict[feature] = csv.writer(csv_file_dict[feature], delimiter=',')
         csv_writer_dict[feature].writerow(['streamer', 'title', 'link'])
         csv_file_dict[feature].close()
+        if dump:
+            dump_file = csv_path_dict[feature].replace(".csv", "_count.csv")
+            d_file = open(dump_file, 'w', newline='', encoding='utf-8')
+            d_csv = csv.writer(d_file, delimiter=',')
+            d_csv.writerow(['streamer', 'title', 'count'])
+            d_file.close()
         
-    return csv_path_dict, csv_file_dict, csv_writer_dict, base_path, chat_log_dir
+    return csv_path_dict, csv_writer_dict, base_path, chat_log_dir
     
 def compress_ops(op, base_path):
     if op == "compress":
@@ -162,15 +169,30 @@ def chunk_dict(data, size):
         yield {k:data[k] for k in islice(it, size)}
         
 # dataframe calculations for feature detection and csv writing
-def df_calc(dlist, vidId, path, offset, num_link_arg, streamer, title):
+def df_calc(dlist, vidId, path, offset, num_link_arg, streamer, title, dump):
     dframe = pd.DataFrame(dlist, columns=['tstamp', 'count'])
     dframe = dframe.set_index(['tstamp'])
     dframe.index = pd.to_timedelta(dframe.index, unit='s')
     dframe = dframe.groupby(['tstamp']).sum()
+    if dump:
+        dframe2 = dframe.copy()
+        dframe2 = dframe2.resample("60S").sum()
+        dframe2 = dframe2[dframe2['count'] >= 5]
+        dframe2.reset_index(inplace=True)
+        time_list = dframe2['tstamp'].tolist()
+        time_inc_list = []
+        for time in time_list:
+            time_inc_list.append(time + timedelta(minutes=1))
+        dframe2 = dframe2[~dframe2['tstamp'].isin(time_inc_list)]
     dframe = dframe.resample("30S").sum()
     dframe = dframe[dframe['count'] != 0]
     dframe.sort_values(by=['count'], inplace=True, ascending=False)
     dframe.reset_index(inplace=True)
+    if dump:
+        ff2 = open(path.replace(".csv", "_count.csv"), 'a', newline='', encoding='utf-8')
+        wr2 = csv.writer(ff2, delimiter=',')
+        wr2.writerow([streamer, title, str(len(dframe2))])
+        ff2.close()
     if len(dframe):
         num_links = 1
         if len(dframe) > num_link_arg:
@@ -190,8 +212,7 @@ def df_calc(dlist, vidId, path, offset, num_link_arg, streamer, title):
                 wr.writerow([streamer, title, tstamp])
                 has_written = True
         ff.close()
-        if not has_written:
-            os.remove(path)
+        
             
 def create_dl_queue(playlists, start_range, end_range, timezone, chat_log_dir, ignore):
     dl_queue = {}
