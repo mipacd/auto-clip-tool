@@ -3,7 +3,10 @@ import re
 feature_list = ['humor', 'teetee', 'faq', 'lewd', 'clip', 'fail', 'hic', 'inaff', 'guh', 'superchat', 'tmt', 'bottomleft']
 
 def has_humor(msg, streamer):
-    humor_list = ["草", "kusa", "grass", "茶葉", "_fbkcha", "_lol", "lmao", "lmfao", "haha", "🤣", "😆", "jaja", "笑",
+    #humor_list = ["草", "kusa", "grass", "茶葉", "_fbkcha", "_lol", "lmao", "lmfao", "haha", "🤣", "😆", "jaja", "笑",
+    #                "xd", "wkwk", "ｗ"]
+    
+    humor_list = ["草", "茶葉", "_fbkcha", "_lol", "lmao", "lmfao", "haha", "🤣", "😆", "jaja", "笑",
                     "xd", "wkwk", "ｗ"]
                     
     # check if message has japanese and ends with ascii 'w'

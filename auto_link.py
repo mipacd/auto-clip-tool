@@ -61,11 +61,16 @@ if __name__ == "__main__":
                     
     # parallel log downloader
     lf.parallel_download(thread_count, chunk_size, dl_queue, api, chat_log_dir)
+    
+    strm_list = []
         
     # parse each chat file
     if not args.download:
         for key, val in playlists.items():
             for vid in reversed(val.items):
+                if vid.snippet.resourceId.videoId in strm_list:
+                    continue
+                strm_list.append(vid.snippet.resourceId.videoId)
                 pub_date = vid.contentDetails.videoPublishedAt
                 pub_dt = dateutil.parser.isoparse(pub_date).astimezone(pytz.timezone(args.timezone))
 
@@ -92,7 +97,10 @@ if __name__ == "__main__":
                             else:
                                 opened = True
                         is_log_file = True
-                        last_tstamp = int(float(chat[-1].split(',', 1)[0]))
+                        try:
+                           last_tstamp = int(float(chat[-1].split(',', 1)[0]))
+                        except:
+                            continue
                     
                     # read each chat message
                     for msg in chat:

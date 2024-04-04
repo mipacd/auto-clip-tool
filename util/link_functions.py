@@ -1,4 +1,4 @@
-from chat_replay_downloader import ChatDownloader, errors
+from chat_downloader import ChatDownloader, errors
 from datetime import timedelta
 from functools import reduce
 from itertools import islice
@@ -17,16 +17,19 @@ import psutil
 import pytz
 import sys
 import tarfile
+import time
+import signal
 
 from util import feature_check
 
 def read_api_key(file):
-    try:
-        with open(file, 'r') as f:
-            return Api(api_key=f.readline())
-    except:
-        print("Unable to read API key from key.txt")
-        sys.exit(1)
+    #try:
+    #    with open(file, 'r') as f:
+    #        return Api(api_key=f.readline())
+    #except:
+     #   print("Unable to read API key from key.txt")
+     #   sys.exit(1)
+    return Api(api_key="AIzaSyD_welXlfDLZvrQNpB40um1HdSFQPSO1vM")
         
 def build_name_playlist_mapping(group, streamers):
     name_list = []
@@ -126,6 +129,7 @@ def get_playlists(name_list, pl_list, api):
         
     return playlists
     
+    
 # chat download function
 def download_chat(dir, name, title, vidId, api):
     success = False
@@ -148,8 +152,14 @@ def download_chat(dir, name, title, vidId, api):
             continue
             
         last_tstamp = chat.duration
+        if not last_tstamp:
+            print("Unable to determine video length: " + name + '-' + title)
+            return (vidId, None)
         end_time = last_tstamp / 60
         vid_by_id = api.get_video_by_id(video_id=vidId)
+        if not vid_by_id.items:
+            print("Unable to parse video metadata: " + name + '-' + title)
+            return(vidId, None)
         vid_duration = isodate.parse_duration(vid_by_id.items[0].contentDetails.duration).seconds
         dur_short = last_tstamp < vid_duration - 60
         if dur_short:
@@ -160,7 +170,10 @@ def download_chat(dir, name, title, vidId, api):
             if not chat:
                 return (vidId, None)
             else:
-                return (vidId, list(chat))
+                try:
+                    return (vidId, list(chat))
+                except:
+                    return (vidId, None)
                 
 # mulitprocess chat download chunking function
 def chunk_dict(data, size):
@@ -216,17 +229,18 @@ def df_calc(dlist, vidId, path, offset, num_link_arg, streamer, title, dump):
             
 def create_dl_queue(playlists, start_range, end_range, timezone, chat_log_dir, ignore):
     dl_queue = {}
+    ignore_list = []
+    if ignore:
+        ignore_list = ignore.split(',')
     for key, val in playlists.items():
         for vid in reversed(val.items):
             pub_date = vid.contentDetails.videoPublishedAt
-            pub_dt = dateutil.parser.isoparse(pub_date).astimezone(pytz.timezone(timezone))
-            if (start_range <= pub_dt <= end_range):
-                if not os.path.isfile(os.path.join(chat_log_dir, vid.snippet.resourceId.videoId)):
-                    ignore_list = []
-                    if ignore:
-                        ignore = args.ignore.split(',')
-                    if vid.snippet.resourceId.videoId not in ignore_list :
-                        dl_queue[vid.snippet.resourceId.videoId] = (key, vid.snippet.title)
+            if (pub_date):
+                pub_dt = dateutil.parser.isoparse(pub_date).astimezone(pytz.timezone(timezone))
+                if (start_range <= pub_dt <= end_range):
+                    if not os.path.isfile(os.path.join(chat_log_dir, vid.snippet.resourceId.videoId)):
+                        if vid.snippet.resourceId.videoId not in ignore_list :
+                            dl_queue[vid.snippet.resourceId.videoId] = (key, vid.snippet.title)
                         
     return dl_queue
     
@@ -254,14 +268,20 @@ def parallel_download(thread_count, chunk_size, dl_queue, api, chat_log_dir):
             if chat:
                 chat_file = open(os.path.join(chat_log_dir, vidId), 'w', encoding='utf-8')
                 for line in chat:
-                    if 'message' in line and 'author' in line and not 'ticker_duration' in line:
-                        if line['time_in_seconds'] > 0:
+                    if 'message' in line and 'author' in line and 'time_in_seconds' in line and not 'ticker_duration' in line:
+                        if line['time_in_seconds'] > 0 and line['message'] is not None:
                             msg = line['message'].replace('\n', '').replace('\t', '').replace(',', '')
+                            if 'name' not in line['author']:
+                                continue
                             author = line['author']['name'].replace('\n', '').replace('\t', '').replace(',', '')
-                            if 'amount' in line:
-                                chat_file.write(str(line['time_in_seconds']) + ',' + author + ',' + msg + ',' + line['amount'] + '\n')
+                            if 'badges' in line['author']:
+                                badge = line['author']['badges'][0]['title']
                             else:
-                                chat_file.write(str(line['time_in_seconds']) + ',' + author + ',' + msg + '\n')
+                                badge = ""
+                            if 'amount' in line:
+                                chat_file.write(str(line['time_in_seconds']) + ',' + author + ',' + msg + ',' + line['amount'] + ',' + badge + '\n')
+                            else:
+                                chat_file.write(str(line['time_in_seconds']) + ',' + author + ',' + msg + ",," + badge + '\n')
                 chat_file.close()
         del dl_items
         gc.collect()

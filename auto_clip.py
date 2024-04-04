@@ -37,6 +37,7 @@ with open(args.path, newline='', encoding='utf-8') as csvfile:
     filelist = open("filelist.txt", 'w')
     desc_file = open("description.txt", 'w')
     count = 0
+    min = 0
     streamer_tstamp = datetime.timedelta(seconds=0)
     last_streamer = ""
     
@@ -85,7 +86,8 @@ with open(args.path, newline='', encoding='utf-8') as csvfile:
                         channel = streamers.channel_ids[streamer.lower()].replace("UU", "UC", 1)
                         desc_file.write(f"https://www.youtube.com/channel/{channel}\n")
                     last_streamer = streamer
-                desc_file.write(title + '\n')
+                desc_file.write(f"{min}:00 - " + title + '\n')
+                min = min + 1
                 desc_file.write(url + '\n')
                 
             
@@ -96,7 +98,7 @@ with open(args.path, newline='', encoding='utf-8') as csvfile:
             
             #process stream if file doesn't exist
             if not os.path.exists(filename):
-                proc = subprocess.Popen(f"youtube-dl --youtube-skip-dash-manifest -g \"{url}\"", stdout=subprocess.PIPE, shell=True)
+                proc = subprocess.Popen(f"yt-dlp --youtube-skip-dash-manifest -g \"{url}\"", stdout=subprocess.PIPE, shell=True)
                 vid_strm = proc.communicate()[0]
                 vid_strm = vid_strm.decode('utf-8').split('\n')
                 
@@ -111,11 +113,23 @@ with open(args.path, newline='', encoding='utf-8') as csvfile:
                 end_time = str(datetime.timedelta(seconds=int(timecode)) + datetime.timedelta(seconds=args.length))
                 length = str(datetime.timedelta(seconds=args.length))
                 
-                if vid_strm[1] != '':
-                    proc = subprocess.Popen(f"ffmpeg -ss {start_time} -i \"{vid_strm[0]}\" -ss {start_time} -i \"{vid_strm[1]}\" -map 0:v -map 1:a -ss {str(ss)} -t {length} -c:v libx264 -r 30 -c:a aac -ar 48000 -b:a 192k -avoid_negative_ts make_zero -fflags +genpts \"{filename}\"", shell=True)
-                else:
-                    proc = subprocess.Popen(f"ffmpeg -ss {start_time} -i \"{vid_strm[0]}\" -ss {start_time} -ss {str(ss)} -t {length} -c:v libx264 -r 30 -c:a aac -ar 48000 -b:a 192k -avoid_negative_ts make_zero -fflags +genpts \"{filename}\"", shell=True)
-                out = proc.communicate()
+                loop = True
+                
+                while loop:
+                    if vid_strm[1] != '':
+                        proc = subprocess.Popen(f"ffmpeg -ss {start_time} -i \"{vid_strm[0]}\" -ss {start_time} -i \"{vid_strm[1]}\" -map 0:v -map 1:a -ss {str(ss)} -t {length} -c:v libx264 -r 30 -c:a aac -ar 48000 -b:a 192k -avoid_negative_ts make_zero -fflags +genpts -err_detect explode \"{filename}\"", shell=True)
+                    else:
+                        proc = subprocess.Popen(f"ffmpeg -ss {start_time} -i \"{vid_strm[0]}\" -ss {start_time} -ss {str(ss)} -t {length} -c:v libx264 -r 30 -c:a aac -ar 48000 -b:a 192k -avoid_negative_ts make_zero -fflags +genpts -err_detect explode \"{filename}\"", shell=True)
+                    out = proc.communicate()
+                    
+                    # retry if ffmpeg fails
+                    if proc.returncode:
+                        secs = sum(int(x) * 60 ** i for i, x in enumerate(reversed(start_time.split(':'))))
+                        secs = secs + 1
+                        start_time = str(datetime.timedelta(seconds=int(secs)))
+                        os.remove(filename)
+                    else:
+                        loop = False
                 
             
             filelist.write(f"file \'{filename}\'\n")
