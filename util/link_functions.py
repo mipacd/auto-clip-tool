@@ -22,14 +22,21 @@ import signal
 
 from util import feature_check
 
+class TimeoutException(Exception):
+    pass
+    
+def timeout_handler(signum, frame):
+    raise TimeoutException
+    
+signal.signal(signal.SIGALRM, timeout_handler)
+
 def read_api_key(file):
-    #try:
-    #    with open(file, 'r') as f:
-    #        return Api(api_key=f.readline())
-    #except:
-     #   print("Unable to read API key from key.txt")
-     #   sys.exit(1)
-    return Api(api_key="AIzaSyD_welXlfDLZvrQNpB40um1HdSFQPSO1vM")
+    try:
+        with open(file, 'r') as f:
+            return Api(api_key=f.readline())
+    except:
+        print("Unable to read API key from key.txt")
+        sys.exit(1)
         
 def build_name_playlist_mapping(group, streamers):
     name_list = []
@@ -132,48 +139,55 @@ def get_playlists(name_list, pl_list, api):
     
 # chat download function
 def download_chat(dir, name, title, vidId, api):
-    success = False
-    retryCount = 0
-    while not success:
-        if retryCount == 10:
-            print("Unable to get complete chat data, skipping: " + name + "-" + title + " - " + vidId)
-            return (vidId, None)
-        try:
-            print("Downloading chat for: " + name + " - " + title)
-            crd = ChatDownloader()
-            chat = crd.get_chat(f"https://youtube.com/watch?v={vidId}", message_types=['text_message', 'paid_message'])
-        except errors.NoChatReplay:
-            print("No chat replay, skipping: " + name + " - " + title)
-            return (vidId, None)
-        except Exception as e:
-            print("Chat replay unavailable, retrying: " + name + "-" + title)
-            retryCount += 1
-            time.sleep(5)
-            continue
-            
-        last_tstamp = chat.duration
-        if not last_tstamp:
-            print("Unable to determine video length: " + name + '-' + title)
-            return (vidId, None)
-        end_time = last_tstamp / 60
-        vid_by_id = api.get_video_by_id(video_id=vidId)
-        if not vid_by_id.items:
-            print("Unable to parse video metadata: " + name + '-' + title)
-            return(vidId, None)
-        vid_duration = isodate.parse_duration(vid_by_id.items[0].contentDetails.duration).seconds
-        dur_short = last_tstamp < vid_duration - 60
-        if dur_short:
-            retryCount += 1
-            print("Duration mismatch (Vid: " + str(vid_duration) + "s, Chat: " + str(last_tstamp) + "s) Retrying...: " + name + "-" + title)
-            time.sleep(5)
-        else:
-            if not chat:
+    signal.alarm(10 * 60)
+    try:
+        success = False
+        retryCount = 0
+        while not success:
+            if retryCount == 10:
+                print("Unable to get complete chat data, skipping: " + name + "-" + title + " - " + vidId)
                 return (vidId, None)
+            try:
+                print("Downloading chat for: " + name + " - " + title)
+                crd = ChatDownloader()
+                chat = crd.get_chat(f"https://youtube.com/watch?v={vidId}", message_types=['text_message', 'paid_message'])
+            except errors.NoChatReplay:
+                print("No chat replay, skipping: " + name + " - " + title)
+                return (vidId, None)
+            except Exception as e:
+                print("Chat replay unavailable, retrying: " + name + "-" + title)
+                retryCount += 1
+                time.sleep(5)
+                continue
+                
+            last_tstamp = chat.duration
+            if not last_tstamp:
+                print("Unable to determine video length: " + name + '-' + title)
+                return (vidId, None)
+            end_time = last_tstamp / 60
+            vid_by_id = api.get_video_by_id(video_id=vidId)
+            if not vid_by_id.items:
+                print("Unable to parse video metadata: " + name + '-' + title)
+                return(vidId, None)
+            vid_duration = isodate.parse_duration(vid_by_id.items[0].contentDetails.duration).seconds
+            dur_short = last_tstamp < vid_duration - 60
+            if dur_short:
+                retryCount += 1
+                print("Duration mismatch (Vid: " + str(vid_duration) + "s, Chat: " + str(last_tstamp) + "s) Retrying...: " + name + "-" + title)
+                time.sleep(5)
             else:
-                try:
-                    return (vidId, list(chat))
-                except:
+                if not chat:
                     return (vidId, None)
+                else:
+                    try:
+                        return (vidId, list(chat))
+                    except:
+                        return (vidId, None)
+    except TimeoutException:
+        print("Download timed out: " + name + " - " + title)
+        return (vidId, None)
+    finally:
+        signal.alarm(0)
                 
 # mulitprocess chat download chunking function
 def chunk_dict(data, size):
